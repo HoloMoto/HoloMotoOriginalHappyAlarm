@@ -2,13 +2,14 @@
 // DOM Elements
 const currentTimeElement = document.getElementById('current-time');
 const alarmTimeInput = document.getElementById('alarm-time');
+const alarmMessageInput = document.getElementById('alarm-message');
 const setAlarmButton = document.getElementById('set-alarm');
 const stopAlarmButton = document.getElementById('stop-alarm');
 const alarmStatusElement = document.getElementById('alarm-status');
 // Zonos AI API key
 const ZONOS_API_KEY = 'zsk-af1c9078c3dccda5b7806b3d6f8029e427b83157b546f086a49cd27d239d72d6';
-// Use HTTPS for the API endpoint
-const ZONOS_API_URL = 'https://api.zyphra.com/v1/generate/speech';
+// Use HTTP for the API endpoint
+const ZONOS_API_URL = 'http://api.zyphra.com/v1/audio/text-to-speech';
 // Fallback to a local audio file if the API call fails
 const FALLBACK_AUDIO_PATH = 'Voice/mahiru.wav';
 // Alarm state
@@ -53,13 +54,14 @@ async function generateVoice(text) {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ZONOS_API_KEY}`
+                        'X-API-Key': ZONOS_API_KEY
                     },
                     body: JSON.stringify({
                         text: text,
-                        voice: 'ja-JP-Standard-A', // Japanese voice
-                        speed: 1.0,
-                        format: 'mp3'
+                        speaking_rate: 15,
+                        model: 'zonos-v0.1-hybrid', // Recommended for Japanese
+                        language_iso_code: 'ja',
+                        mime_type: 'audio/mp3'
                     }),
                     signal: controller.signal
                 });
@@ -85,8 +87,10 @@ async function generateVoice(text) {
             if (!response.ok) {
                 throw new Error(`API request failed with status ${response.status}`);
             }
-            const data = await response.json();
-            return data.audio_url; // Assuming the API returns an audio URL
+            // The API returns the audio data directly as a blob
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            return audioUrl;
         }
         catch (error) {
             retries++;
@@ -160,8 +164,16 @@ async function triggerAlarm() {
     const now = new Date();
     const hours = now.getHours().toString().padStart(2, '0');
     const minutes = now.getMinutes().toString().padStart(2, '0');
-    // Generate voice message
-    const message = `現在の時刻は${hours}時${minutes}分です。起きる時間です。`;
+    // Generate voice message - use custom message if provided, otherwise use default
+    let message;
+    if (alarmMessageInput.value.trim()) {
+        // Use custom message from textarea
+        message = alarmMessageInput.value.trim();
+    }
+    else {
+        // Use default message with current time
+        message = `現在の時刻は${hours}時${minutes}分です。起きる時間です。`;
+    }
     try {
         // Generate and play voice - will return either API URL or fallback audio path
         const audioUrl = await generateVoice(message);
@@ -227,7 +239,19 @@ function setAlarm() {
     if (alarmTime < now) {
         alarmTime.setDate(alarmTime.getDate() + 1);
     }
-    alarmStatusElement.textContent = `アラームは ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} に設定されています（音声通知）`;
+    // Check if a custom message is provided
+    const customMessage = alarmMessageInput.value.trim();
+    if (customMessage) {
+        // If custom message is provided, include it in the status (truncate if too long)
+        const shortMessage = customMessage.length > 20
+            ? customMessage.substring(0, 20) + '...'
+            : customMessage;
+        alarmStatusElement.textContent = `アラームは ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} に設定されています（メッセージ: "${shortMessage}"）`;
+    }
+    else {
+        // If no custom message, use the default status
+        alarmStatusElement.textContent = `アラームは ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} に設定されています（デフォルトメッセージ）`;
+    }
     // Stop any currently ringing alarm
     if (isAlarmRinging) {
         stopAlarm();

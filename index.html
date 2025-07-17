@@ -59,20 +59,25 @@
 <body>
     <div class="container">
         <h1>アラーム時計</h1>
-        
+
         <div class="clock" id="current-time">00:00:00</div>
-        
+
         <div class="controls">
             <div>
                 <label for="alarm-time">アラーム時間を設定:</label>
                 <input type="time" id="alarm-time">
             </div>
-            
+
+            <div>
+                <label for="alarm-message">アラームメッセージ:</label>
+                <textarea id="alarm-message" rows="3" placeholder="起きる時間です。（空白の場合はデフォルトメッセージが使用されます）"></textarea>
+            </div>
+
             <div>
                 <button id="set-alarm">アラームをセット</button>
                 <button id="stop-alarm" disabled>アラームを停止</button>
             </div>
-            
+
             <div class="status" id="alarm-status">アラームは設定されていません</div>
         </div>
     </div>
