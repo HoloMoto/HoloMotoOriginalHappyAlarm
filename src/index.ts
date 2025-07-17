@@ -56,20 +56,43 @@ async function generateVoice(text: string): Promise<string> {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-            const response = await fetch(ZONOS_API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${ZONOS_API_KEY}`
-                },
-                body: JSON.stringify({
-                    text: text,
-                    voice: 'ja-JP-Standard-A', // Japanese voice
-                    speed: 1.0,
-                    format: 'mp3'
-                }),
-                signal: controller.signal
-            });
+            // Wrap the fetch in a try-catch to handle network errors more explicitly
+            let response;
+            try {
+                response = await fetch(ZONOS_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${ZONOS_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        voice: 'ja-JP-Standard-A', // Japanese voice
+                        speed: 1.0,
+                        format: 'mp3'
+                    }),
+                    signal: controller.signal
+                });
+            } catch (fetchError) {
+                // Log the specific fetch error
+                console.error('Fetch operation failed:', fetchError);
+
+                // Clear the timeout since fetch has already completed/failed
+                clearTimeout(timeoutId);
+
+                // Increment retries and check if we should fall back
+                retries++;
+                if (retries > MAX_RETRIES) {
+                    console.log(`Maximum retries (${MAX_RETRIES}) reached. Falling back to local audio.`);
+                    alarmStatusElement.textContent += ' (ネットワークエラーのため、ローカル音声を使用しています)';
+                    return FALLBACK_AUDIO_PATH;
+                }
+
+                // Wait before retrying
+                const delay = Math.min(1000 * Math.pow(2, retries - 1), 3000);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue; // Skip the rest of this iteration and try again
+            }
 
             clearTimeout(timeoutId);
 
@@ -81,13 +104,24 @@ async function generateVoice(text: string): Promise<string> {
             return data.audio_url; // Assuming the API returns an audio URL
         } catch (error) {
             retries++;
-            console.error(`Error generating voice (attempt ${retries}/${MAX_RETRIES + 1}):`, error);
+
+            // More user-friendly error message
+            let errorMessage: string;
+            if (error instanceof TypeError) {
+                errorMessage = 'ネットワークエラー：音声サービスに接続できません';
+            } else if (error instanceof Error) {
+                errorMessage = `音声生成エラー：${error.message}`;
+            } else {
+                errorMessage = '不明なエラーが発生しました';
+            }
+            console.error(`${errorMessage} (試行 ${retries}/${MAX_RETRIES + 1})`);
 
             // If we've reached max retries or it's a network error, fall back immediately
             if (retries > MAX_RETRIES || 
                 error instanceof TypeError || 
                 (error instanceof DOMException && error.name === 'AbortError')) {
                 console.log('Falling back to local audio file due to network error or timeout');
+                alarmStatusElement.textContent += ' (ネットワークエラーのため、ローカル音声を使用しています)';
                 return FALLBACK_AUDIO_PATH;
             }
 
@@ -98,6 +132,7 @@ async function generateVoice(text: string): Promise<string> {
     }
 
     // If we've exhausted all retries, return the fallback
+    console.log('All retry attempts failed. Using local audio file.');
     return FALLBACK_AUDIO_PATH;
 }
 
