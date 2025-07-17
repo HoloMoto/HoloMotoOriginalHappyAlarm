@@ -46,39 +46,59 @@ function updateClock(): void {
 
 // Generate voice using Zonos AI API
 async function generateVoice(text: string): Promise<string> {
-    try {
-        // Add a timeout to the fetch request to handle connection issues
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    // Maximum number of retry attempts
+    const MAX_RETRIES = 2;
+    let retries = 0;
 
-        const response = await fetch(ZONOS_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ZONOS_API_KEY}`
-            },
-            body: JSON.stringify({
-                text: text,
-                voice: 'ja-JP-Standard-A', // Japanese voice
-                speed: 1.0,
-                format: 'mp3'
-            }),
-            signal: controller.signal
-        });
+    while (retries <= MAX_RETRIES) {
+        try {
+            // Add a timeout to the fetch request to handle connection issues
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-        clearTimeout(timeoutId);
+            const response = await fetch(ZONOS_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${ZONOS_API_KEY}`
+                },
+                body: JSON.stringify({
+                    text: text,
+                    voice: 'ja-JP-Standard-A', // Japanese voice
+                    speed: 1.0,
+                    format: 'mp3'
+                }),
+                signal: controller.signal
+            });
 
-        if (!response.ok) {
-            throw new Error(`API request failed with status ${response.status}`);
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`API request failed with status ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data.audio_url; // Assuming the API returns an audio URL
+        } catch (error) {
+            retries++;
+            console.error(`Error generating voice (attempt ${retries}/${MAX_RETRIES + 1}):`, error);
+
+            // If we've reached max retries or it's a network error, fall back immediately
+            if (retries > MAX_RETRIES || 
+                error instanceof TypeError || 
+                (error instanceof DOMException && error.name === 'AbortError')) {
+                console.log('Falling back to local audio file due to network error or timeout');
+                return FALLBACK_AUDIO_PATH;
+            }
+
+            // Wait before retrying (exponential backoff)
+            const delay = Math.min(1000 * Math.pow(2, retries - 1), 3000);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
-
-        const data = await response.json();
-        return data.audio_url; // Assuming the API returns an audio URL
-    } catch (error) {
-        console.error('Error generating voice:', error);
-        // Return the fallback audio file path instead of an empty string
-        return FALLBACK_AUDIO_PATH;
     }
+
+    // If we've exhausted all retries, return the fallback
+    return FALLBACK_AUDIO_PATH;
 }
 
 // Play audio from URL or local file
